@@ -11,6 +11,7 @@ import {
   type ErrosFormularioItem,
 } from './domain/precificacao'
 import { carregarItensSalvos, persistirItens } from './storage/itensLocal'
+import { formatarBrl } from './formato/brl'
 
 const itens = ref<Item[]>([])
 const idEmEdicao = ref<string | null>(null)
@@ -57,13 +58,6 @@ const custoPreview = computed<number | null>(() => {
 function ariaDesc(hintIds: string | string[], erroId?: string): string {
   const hints = Array.isArray(hintIds) ? hintIds : [hintIds]
   return [...hints, erroId].filter(Boolean).join(' ')
-}
-
-function formatarMoedaSimples(valor: number): string {
-  return valor.toLocaleString('pt-BR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
 }
 
 function numeroParaCampo(n: number): string {
@@ -148,7 +142,7 @@ function custoTotalItem(item: Item): number {
 
 function precoExibicao(item: Item): string {
   const custo = custoTotalItem(item)
-  return formatarMoedaSimples(calcularPrecoVenda(custo, item.margemPercentual))
+  return formatarBrl(calcularPrecoVenda(custo, item.margemPercentual))
 }
 </script>
 
@@ -164,9 +158,13 @@ function precoExibicao(item: Item): string {
     <form
       class="form"
       novalidate
+      aria-labelledby="titulo-formulario"
       @submit.prevent="salvarOuAtualizarItem"
     >
-      <h2 class="section-title">
+      <h2
+        id="titulo-formulario"
+        class="section-title"
+      >
         {{ tituloFormulario }}
       </h2>
 
@@ -339,7 +337,7 @@ function precoExibicao(item: Item): string {
           class="custo-preview"
           aria-live="polite"
         >
-          Custo unitário (soma): <strong>{{ formatarMoedaSimples(custoPreview) }}</strong>
+          Custo unitário (soma): <strong>{{ formatarBrl(custoPreview) }}</strong>
         </p>
       </fieldset>
 
@@ -375,6 +373,7 @@ function precoExibicao(item: Item): string {
           type="submit"
           class="btn-primary"
           data-testid="submit"
+          :aria-label="textoBotaoPrincipal"
         >
           {{ textoBotaoPrincipal }}
         </button>
@@ -383,6 +382,7 @@ function precoExibicao(item: Item): string {
           type="button"
           class="btn-secondary"
           data-testid="cancelar-edicao"
+          aria-label="Cancelar edição e limpar o formulário"
           @click="cancelarEdicao"
         >
           Cancelar edição
@@ -424,6 +424,7 @@ function precoExibicao(item: Item): string {
                 type="button"
                 class="btn-ghost"
                 data-testid="editar-item"
+                :aria-label="`Editar o item ${item.nome}`"
                 @click="iniciarEdicao(item)"
               >
                 Editar
@@ -432,6 +433,7 @@ function precoExibicao(item: Item): string {
                 type="button"
                 class="btn-danger"
                 data-testid="remover-item"
+                :aria-label="`Remover o item ${item.nome} da lista`"
                 @click="removerItem(item.id)"
               >
                 Remover
@@ -441,23 +443,23 @@ function precoExibicao(item: Item): string {
           <dl class="lista-detalhe">
             <div class="lista-dl-row">
               <dt>Matéria-prima</dt>
-              <dd>{{ formatarMoedaSimples(item.componentesCusto.materiaPrima) }}</dd>
+              <dd>{{ formatarBrl(item.componentesCusto.materiaPrima) }}</dd>
             </div>
             <div class="lista-dl-row">
               <dt>Embalagem</dt>
-              <dd>{{ formatarMoedaSimples(item.componentesCusto.embalagem) }}</dd>
+              <dd>{{ formatarBrl(item.componentesCusto.embalagem) }}</dd>
             </div>
             <div class="lista-dl-row">
               <dt>Taxas adm.</dt>
-              <dd>{{ formatarMoedaSimples(item.componentesCusto.taxasAdministrativas) }}</dd>
+              <dd>{{ formatarBrl(item.componentesCusto.taxasAdministrativas) }}</dd>
             </div>
             <div class="lista-dl-row">
               <dt>Transporte</dt>
-              <dd>{{ formatarMoedaSimples(item.componentesCusto.transporte) }}</dd>
+              <dd>{{ formatarBrl(item.componentesCusto.transporte) }}</dd>
             </div>
           </dl>
           <p class="lista-total">
-            Custo unitário total: {{ formatarMoedaSimples(custoTotalItem(item)) }}
+            Custo unitário total: {{ formatarBrl(custoTotalItem(item)) }}
             · Margem {{ item.margemPercentual }}%
           </p>
           <p class="lista-preco">
@@ -798,5 +800,27 @@ function precoExibicao(item: Item): string {
 .lista-preco {
   font-weight: 600;
   color: var(--text-h);
+}
+
+@media (max-width: 560px) {
+  .input {
+    font-size: 1rem;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    min-height: 2.75rem;
+  }
+
+  .btn-ghost,
+  .btn-danger {
+    min-height: 2.75rem;
+    padding: 0.5rem 0.85rem;
+  }
+
+  .lista-acoes {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 </style>
