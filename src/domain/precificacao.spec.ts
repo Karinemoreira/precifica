@@ -4,12 +4,37 @@ import {
   validarItemParaCadastro,
   formularioTemErros,
   parseNumeroDecimal,
+  somarComponentesCusto,
   MARGEM_PERCENTUAL_MAX,
   MARGEM_PERCENTUAL_MIN,
 } from './precificacao'
 
+const componentesOk = {
+  materiaPrima: 10,
+  embalagem: 2,
+  taxasAdministrativas: 1,
+  transporte: 2,
+}
+
+describe('somarComponentesCusto', () => {
+  it('soma os quatro componentes', () => {
+    expect(somarComponentesCusto(componentesOk)).toBe(15)
+  })
+
+  it('aceita zeros', () => {
+    expect(
+      somarComponentesCusto({
+        materiaPrima: 0,
+        embalagem: 0,
+        taxasAdministrativas: 0,
+        transporte: 5,
+      }),
+    ).toBe(5)
+  })
+})
+
 describe('calcularPrecoVenda', () => {
-  it('aplica margem percentual sobre o custo', () => {
+  it('aplica margem percentual sobre o custo total', () => {
     expect(calcularPrecoVenda(100, 50)).toBe(150)
     expect(calcularPrecoVenda(10, 20)).toBe(12)
   })
@@ -36,70 +61,102 @@ describe('validarItemParaCadastro', () => {
   it('aceita item válido', () => {
     const erros = validarItemParaCadastro({
       nome: 'Produto A',
-      custoUnitario: 10,
+      componentesCusto: componentesOk,
       margemPercentual: 25,
     })
     expect(formularioTemErros(erros)).toBe(false)
   })
 
   it('rejeita nome vazio ou só espaços', () => {
-    expect(validarItemParaCadastro({ nome: '', custoUnitario: 1, margemPercentual: 0 }).nome).toBe(
-      'Informe o nome do item.',
-    )
     expect(
-      validarItemParaCadastro({ nome: '   ', custoUnitario: 1, margemPercentual: 0 }).nome,
+      validarItemParaCadastro({
+        nome: '',
+        componentesCusto: componentesOk,
+        margemPercentual: 0,
+      }).nome,
+    ).toBe('Informe o nome do item.')
+    expect(
+      validarItemParaCadastro({
+        nome: '   ',
+        componentesCusto: componentesOk,
+        margemPercentual: 0,
+      }).nome,
     ).toBe('Informe o nome do item.')
   })
 
-  it('rejeita custo negativo ou não finito', () => {
+  it('rejeita componente negativo ou não finito', () => {
     expect(
-      validarItemParaCadastro({ nome: 'x', custoUnitario: -1, margemPercentual: 0 }).custoUnitario,
+      validarItemParaCadastro({
+        nome: 'x',
+        componentesCusto: { ...componentesOk, materiaPrima: -1 },
+        margemPercentual: 0,
+      }).materiaPrima,
     ).toBeTruthy()
     expect(
-      validarItemParaCadastro({ nome: 'x', custoUnitario: NaN, margemPercentual: 0 }).custoUnitario,
-    ).toBeTruthy()
-    expect(
-      validarItemParaCadastro({ nome: 'x', custoUnitario: Number.POSITIVE_INFINITY, margemPercentual: 0 })
-        .custoUnitario,
+      validarItemParaCadastro({
+        nome: 'x',
+        componentesCusto: { ...componentesOk, embalagem: NaN },
+        margemPercentual: 0,
+      }).embalagem,
     ).toBeTruthy()
   })
 
-  it('aceita custo zero', () => {
+  it('aceita todos os componentes zero', () => {
     const erros = validarItemParaCadastro({
       nome: 'Brinde',
-      custoUnitario: 0,
+      componentesCusto: {
+        materiaPrima: 0,
+        embalagem: 0,
+        taxasAdministrativas: 0,
+        transporte: 0,
+      },
       margemPercentual: 10,
     })
-    expect(erros.custoUnitario).toBeUndefined()
+    expect(erros.materiaPrima).toBeUndefined()
+    expect(erros.embalagem).toBeUndefined()
   })
 
   it('rejeita margem fora do intervalo', () => {
     expect(
-      validarItemParaCadastro({ nome: 'x', custoUnitario: 1, margemPercentual: -0.01 })
-        .margemPercentual,
+      validarItemParaCadastro({
+        nome: 'x',
+        componentesCusto: componentesOk,
+        margemPercentual: -0.01,
+      }).margemPercentual,
     ).toContain(String(MARGEM_PERCENTUAL_MIN))
     expect(
       validarItemParaCadastro({
         nome: 'x',
-        custoUnitario: 1,
+        componentesCusto: componentesOk,
         margemPercentual: MARGEM_PERCENTUAL_MAX + 1,
       }).margemPercentual,
     ).toBeTruthy()
     expect(
-      validarItemParaCadastro({ nome: 'x', custoUnitario: 1, margemPercentual: NaN })
-        .margemPercentual,
+      validarItemParaCadastro({
+        nome: 'x',
+        componentesCusto: componentesOk,
+        margemPercentual: NaN,
+      }).margemPercentual,
     ).toBeTruthy()
   })
 
   it('aceita margem nos limites', () => {
     expect(
       formularioTemErros(
-        validarItemParaCadastro({ nome: 'a', custoUnitario: 1, margemPercentual: MARGEM_PERCENTUAL_MIN }),
+        validarItemParaCadastro({
+          nome: 'a',
+          componentesCusto: componentesOk,
+          margemPercentual: MARGEM_PERCENTUAL_MIN,
+        }),
       ),
     ).toBe(false)
     expect(
       formularioTemErros(
-        validarItemParaCadastro({ nome: 'a', custoUnitario: 1, margemPercentual: MARGEM_PERCENTUAL_MAX }),
+        validarItemParaCadastro({
+          nome: 'a',
+          componentesCusto: componentesOk,
+          margemPercentual: MARGEM_PERCENTUAL_MAX,
+        }),
       ),
     ).toBe(false)
   })

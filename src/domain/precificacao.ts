@@ -1,21 +1,41 @@
+import type { ComponentesCusto } from './item'
+
 /**
- * Política do MVP: margem é percentual **sobre o custo** (markup), entre 0 e 100 inclusive.
- * Preço sugerido = custo × (1 + margem/100).
+ * Margem percentual sobre o **custo total** (soma dos componentes), entre 0 e 100.
+ * Preço sugerido = custoTotal × (1 + margem/100).
  */
 export const MARGEM_PERCENTUAL_MIN = 0
 export const MARGEM_PERCENTUAL_MAX = 100
+
+export function somarComponentesCusto(c: ComponentesCusto): number {
+  return c.materiaPrima + c.embalagem + c.taxasAdministrativas + c.transporte
+}
 
 export function calcularPrecoVenda(custoUnitario: number, margemPercentual: number): number {
   return custoUnitario * (1 + margemPercentual / 100)
 }
 
 export type ErrosFormularioItem = Partial<
-  Record<'nome' | 'custoUnitario' | 'margemPercentual', string>
+  Record<
+    | 'nome'
+    | 'margemPercentual'
+    | keyof ComponentesCusto,
+    string
+  >
 >
+
+const CHAVES_COMPONENTES: (keyof ComponentesCusto)[] = [
+  'materiaPrima',
+  'embalagem',
+  'taxasAdministrativas',
+  'transporte',
+]
+
+const MENSAGEM_COMPONENTE = 'Informe um número maior ou igual a zero.'
 
 export function validarItemParaCadastro(input: {
   nome: string
-  custoUnitario: number
+  componentesCusto: ComponentesCusto
   margemPercentual: number
 }): ErrosFormularioItem {
   const erros: ErrosFormularioItem = {}
@@ -23,8 +43,11 @@ export function validarItemParaCadastro(input: {
   if (!nome) {
     erros.nome = 'Informe o nome do item.'
   }
-  if (!Number.isFinite(input.custoUnitario) || input.custoUnitario < 0) {
-    erros.custoUnitario = 'Custo deve ser um número maior ou igual a zero.'
+  for (const chave of CHAVES_COMPONENTES) {
+    const v = input.componentesCusto[chave]
+    if (!Number.isFinite(v) || v < 0) {
+      erros[chave] = MENSAGEM_COMPONENTE
+    }
   }
   if (
     !Number.isFinite(input.margemPercentual) ||

@@ -1,14 +1,15 @@
 # Precifica
 
-**Precifica** é uma aplicação web para ajudar a definir o **preço de venda sugerido** de itens a partir do **custo** e de uma **margem percentual**. O objetivo é um fluxo simples e rápido no navegador: cadastrar itens, ver o preço calculado e evoluir depois para um produto mais completo.
+**Precifica** é uma aplicação web para ajudar a definir o **preço de venda sugerido** a partir da **composição do custo unitário** e de uma **margem percentual**. O objetivo é um fluxo simples no navegador: lançar os custos por componente, ver o total por unidade e o preço calculado.
 
-O código inclui **cadastro mínimo** (nome, custo, margem) e **lista** com o preço calculado. A regra de negócio e os limites estão em [`src/domain/precificacao.ts`](src/domain/precificacao.ts) e nos testes em [`src/domain/precificacao.spec.ts`](src/domain/precificacao.spec.ts).
+O custo unitário é a **soma** de: matéria-prima/ingredientes, embalagem, taxas administrativas (rateio por unidade) e transporte (por unidade). A regra de negócio está em [`src/domain/precificacao.ts`](src/domain/precificacao.ts) e nos testes em [`src/domain/precificacao.spec.ts`](src/domain/precificacao.spec.ts).
 
 ### Precificação (política do MVP)
 
-- **Margem**: percentual entre **0** e **100**, aplicada **sobre o custo** (markup).
+- **Componentes**: cada valor é em **reais por unidade**, maior ou igual a zero (campo vazio ou inválido é rejeitado).
+- **Custo unitário**: soma dos quatro componentes (`somarComponentesCusto`).
+- **Margem**: percentual entre **0** e **100**, aplicada **sobre o custo total** (markup).
 - **Fórmula**: `preço sugerido = custo unitário × (1 + margem / 100)`.
-- **Validação**: nome obrigatório; custo ≥ 0; margem dentro do intervalo (valores não numéricos são rejeitados).
 
 ## Rodar localmente
 

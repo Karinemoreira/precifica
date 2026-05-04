@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { Item } from './domain/item'
 import { novoIdItem } from './domain/item'
 import {
@@ -7,14 +7,38 @@ import {
   validarItemParaCadastro,
   formularioTemErros,
   parseNumeroDecimal,
+  somarComponentesCusto,
   type ErrosFormularioItem,
 } from './domain/precificacao'
 
 const itens = ref<Item[]>([])
 const nome = ref('')
-const custoStr = ref('')
+const materiaPrimaStr = ref('')
+const embalagemStr = ref('')
+const taxasStr = ref('')
+const transporteStr = ref('')
 const margemStr = ref('')
 const erros = ref<ErrosFormularioItem>({})
+
+const custoPreview = computed<number | null>(() => {
+  const materiaPrima = parseNumeroDecimal(materiaPrimaStr.value)
+  const embalagem = parseNumeroDecimal(embalagemStr.value)
+  const taxasAdministrativas = parseNumeroDecimal(taxasStr.value)
+  const transporte = parseNumeroDecimal(transporteStr.value)
+  const nums = [materiaPrima, embalagem, taxasAdministrativas, transporte]
+  if (!nums.every((n) => Number.isFinite(n) && n >= 0)) return null
+  return somarComponentesCusto({
+    materiaPrima,
+    embalagem,
+    taxasAdministrativas,
+    transporte,
+  })
+})
+
+function ariaDesc(hintIds: string | string[], erroId?: string): string {
+  const hints = Array.isArray(hintIds) ? hintIds : [hintIds]
+  return [...hints, erroId].filter(Boolean).join(' ')
+}
 
 function formatarMoedaSimples(valor: number): string {
   return valor.toLocaleString('pt-BR', {
@@ -25,11 +49,16 @@ function formatarMoedaSimples(valor: number): string {
 
 function adicionarItem(): void {
   erros.value = {}
-  const custoUnitario = parseNumeroDecimal(custoStr.value)
+  const componentesCusto = {
+    materiaPrima: parseNumeroDecimal(materiaPrimaStr.value),
+    embalagem: parseNumeroDecimal(embalagemStr.value),
+    taxasAdministrativas: parseNumeroDecimal(taxasStr.value),
+    transporte: parseNumeroDecimal(transporteStr.value),
+  }
   const margemPercentual = parseNumeroDecimal(margemStr.value)
   const validacao = validarItemParaCadastro({
     nome: nome.value,
-    custoUnitario,
+    componentesCusto,
     margemPercentual,
   })
   if (formularioTemErros(validacao)) {
@@ -41,17 +70,25 @@ function adicionarItem(): void {
     {
       id: novoIdItem(),
       nome: nome.value.trim(),
-      custoUnitario,
+      componentesCusto,
       margemPercentual,
     },
   ]
   nome.value = ''
-  custoStr.value = ''
+  materiaPrimaStr.value = ''
+  embalagemStr.value = ''
+  taxasStr.value = ''
+  transporteStr.value = ''
   margemStr.value = ''
 }
 
+function custoTotalItem(item: Item): number {
+  return somarComponentesCusto(item.componentesCusto)
+}
+
 function precoExibicao(item: Item): string {
-  return formatarMoedaSimples(calcularPrecoVenda(item.custoUnitario, item.margemPercentual))
+  const custo = custoTotalItem(item)
+  return formatarMoedaSimples(calcularPrecoVenda(custo, item.margemPercentual))
 }
 </script>
 
@@ -60,7 +97,7 @@ function precoExibicao(item: Item): string {
     <header class="hero">
       <h1>Precifica</h1>
       <p class="tagline">
-        Precificação por custo e margem — adicione itens e veja o preço sugerido.
+        Monte o custo unitário por componentes, defina a margem e veja o preço sugerido.
       </p>
     </header>
 
@@ -73,6 +110,18 @@ function precoExibicao(item: Item): string {
         Novo item
       </h2>
 
+      <div
+        class="formula-box"
+        role="note"
+      >
+        <strong class="formula-titulo">Como o preço é formado</strong>
+        <p class="formula-texto">
+          O <strong>custo unitário</strong> é a soma de matéria-prima, embalagem, taxas administrativas e
+          transporte (todos em reais por unidade). O <strong>preço sugerido</strong> aplica a margem sobre esse
+          total: custo × (1 + margem ÷ 100).
+        </p>
+      </div>
+
       <p
         v-if="formularioTemErros(erros)"
         class="alert"
@@ -82,7 +131,7 @@ function precoExibicao(item: Item): string {
       </p>
 
       <div class="field">
-        <label for="item-nome">Nome</label>
+        <label for="item-nome">Nome do item</label>
         <input
           id="item-nome"
           v-model="nome"
@@ -93,8 +142,14 @@ function precoExibicao(item: Item): string {
           class="input"
           :class="{ invalid: Boolean(erros.nome) }"
           :aria-invalid="Boolean(erros.nome)"
-          :aria-describedby="erros.nome ? 'err-nome' : undefined"
+          :aria-describedby="ariaDesc('hint-nome', erros.nome ? 'err-nome' : undefined)"
         >
+        <p
+          id="hint-nome"
+          class="field-hint"
+        >
+          Nome para identificar o produto na lista.
+        </p>
         <span
           v-if="erros.nome"
           id="err-nome"
@@ -102,49 +157,157 @@ function precoExibicao(item: Item): string {
         >{{ erros.nome }}</span>
       </div>
 
-      <div class="field-row">
-        <div class="field">
-          <label for="item-custo">Custo unitário</label>
-          <input
-            id="item-custo"
-            v-model="custoStr"
-            type="text"
-            inputmode="decimal"
-            name="custo"
-            placeholder="0 ou 10,50"
-            data-testid="custo"
-            class="input"
-            :class="{ invalid: Boolean(erros.custoUnitario) }"
-            :aria-invalid="Boolean(erros.custoUnitario)"
-            :aria-describedby="erros.custoUnitario ? 'err-custo' : undefined"
-          >
-          <span
-            v-if="erros.custoUnitario"
-            id="err-custo"
-            class="field-error"
-          >{{ erros.custoUnitario }}</span>
+      <fieldset class="custo-fieldset">
+        <legend class="fieldset-legend">
+          Composição do custo unitário (R$)
+        </legend>
+        <p
+          id="hint-custo-grupo"
+          class="field-hint field-hint-grupo"
+        >
+          Preencha cada parte do que custa uma unidade do item. Use zero quando não houver aquele custo.
+        </p>
+
+        <div class="grid-custo">
+          <div class="field">
+            <label for="item-mp">Matéria-prima / ingredientes</label>
+            <input
+              id="item-mp"
+              v-model="materiaPrimaStr"
+              type="text"
+              inputmode="decimal"
+              data-testid="materia-prima"
+              class="input"
+              :class="{ invalid: Boolean(erros.materiaPrima) }"
+              :aria-invalid="Boolean(erros.materiaPrima)"
+              :aria-describedby="ariaDesc(['hint-custo-grupo', 'hint-mp'], erros.materiaPrima ? 'err-mp' : undefined)"
+            >
+            <p
+              id="hint-mp"
+              class="field-hint"
+            >
+              Insumos por unidade (R$).
+            </p>
+            <span
+              v-if="erros.materiaPrima"
+              id="err-mp"
+              class="field-error"
+            >{{ erros.materiaPrima }}</span>
+          </div>
+
+          <div class="field">
+            <label for="item-embalagem">Embalagem</label>
+            <input
+              id="item-embalagem"
+              v-model="embalagemStr"
+              type="text"
+              inputmode="decimal"
+              data-testid="embalagem"
+              class="input"
+              :class="{ invalid: Boolean(erros.embalagem) }"
+              :aria-invalid="Boolean(erros.embalagem)"
+              :aria-describedby="ariaDesc(['hint-custo-grupo', 'hint-embalagem'], erros.embalagem ? 'err-embalagem' : undefined)"
+            >
+            <p
+              id="hint-embalagem"
+              class="field-hint"
+            >
+              Sacolas, caixas, rótulos etc. por unidade (R$).
+            </p>
+            <span
+              v-if="erros.embalagem"
+              id="err-embalagem"
+              class="field-error"
+            >{{ erros.embalagem }}</span>
+          </div>
+
+          <div class="field">
+            <label for="item-taxas">Taxas administrativas</label>
+            <input
+              id="item-taxas"
+              v-model="taxasStr"
+              type="text"
+              inputmode="decimal"
+              data-testid="taxas"
+              class="input"
+              :class="{ invalid: Boolean(erros.taxasAdministrativas) }"
+              :aria-invalid="Boolean(erros.taxasAdministrativas)"
+              :aria-describedby="ariaDesc(['hint-custo-grupo', 'hint-taxas'], erros.taxasAdministrativas ? 'err-taxas' : undefined)"
+            >
+            <p
+              id="hint-taxas"
+              class="field-hint"
+            >
+              Rateio por unidade (ex.: parte fixa diluída na produção).
+            </p>
+            <span
+              v-if="erros.taxasAdministrativas"
+              id="err-taxas"
+              class="field-error"
+            >{{ erros.taxasAdministrativas }}</span>
+          </div>
+
+          <div class="field">
+            <label for="item-transporte">Transporte</label>
+            <input
+              id="item-transporte"
+              v-model="transporteStr"
+              type="text"
+              inputmode="decimal"
+              data-testid="transporte"
+              class="input"
+              :class="{ invalid: Boolean(erros.transporte) }"
+              :aria-invalid="Boolean(erros.transporte)"
+              :aria-describedby="ariaDesc(['hint-custo-grupo', 'hint-transporte'], erros.transporte ? 'err-transporte' : undefined)"
+            >
+            <p
+              id="hint-transporte"
+              class="field-hint"
+            >
+              Frete ou logística atribuída a cada unidade vendida.
+            </p>
+            <span
+              v-if="erros.transporte"
+              id="err-transporte"
+              class="field-error"
+            >{{ erros.transporte }}</span>
+          </div>
         </div>
-        <div class="field">
-          <label for="item-margem">Margem (%)</label>
-          <input
-            id="item-margem"
-            v-model="margemStr"
-            type="text"
-            inputmode="decimal"
-            name="margem"
-            placeholder="0 a 100"
-            data-testid="margem"
-            class="input"
-            :class="{ invalid: Boolean(erros.margemPercentual) }"
-            :aria-invalid="Boolean(erros.margemPercentual)"
-            :aria-describedby="erros.margemPercentual ? 'err-margem' : undefined"
-          >
-          <span
-            v-if="erros.margemPercentual"
-            id="err-margem"
-            class="field-error"
-          >{{ erros.margemPercentual }}</span>
-        </div>
+
+        <p
+          v-if="custoPreview !== null"
+          class="custo-preview"
+          aria-live="polite"
+        >
+          Custo unitário (soma): <strong>{{ formatarMoedaSimples(custoPreview) }}</strong>
+        </p>
+      </fieldset>
+
+      <div class="field">
+        <label for="item-margem">Margem sobre o custo total (%)</label>
+        <p
+          id="hint-margem"
+          class="field-hint"
+        >
+          Percentual aplicado sobre a soma dos custos acima (markup).
+        </p>
+        <input
+          id="item-margem"
+          v-model="margemStr"
+          type="text"
+          inputmode="decimal"
+          name="margem"
+          data-testid="margem"
+          class="input"
+          :class="{ invalid: Boolean(erros.margemPercentual) }"
+          :aria-invalid="Boolean(erros.margemPercentual)"
+          :aria-describedby="ariaDesc('hint-margem', erros.margemPercentual ? 'err-margem' : undefined)"
+        >
+        <span
+          v-if="erros.margemPercentual"
+          id="err-margem"
+          class="field-error"
+        >{{ erros.margemPercentual }}</span>
       </div>
 
       <button
@@ -184,10 +347,31 @@ function precoExibicao(item: Item): string {
           class="lista-item"
         >
           <span class="lista-nome">{{ item.nome }}</span>
-          <span class="lista-meta">
-            Custo {{ formatarMoedaSimples(item.custoUnitario) }} · Margem {{ item.margemPercentual }}%
-          </span>
-          <span class="lista-preco"> Preço sugerido: {{ precoExibicao(item) }} </span>
+          <dl class="lista-detalhe">
+            <div class="lista-dl-row">
+              <dt>Matéria-prima</dt>
+              <dd>{{ formatarMoedaSimples(item.componentesCusto.materiaPrima) }}</dd>
+            </div>
+            <div class="lista-dl-row">
+              <dt>Embalagem</dt>
+              <dd>{{ formatarMoedaSimples(item.componentesCusto.embalagem) }}</dd>
+            </div>
+            <div class="lista-dl-row">
+              <dt>Taxas adm.</dt>
+              <dd>{{ formatarMoedaSimples(item.componentesCusto.taxasAdministrativas) }}</dd>
+            </div>
+            <div class="lista-dl-row">
+              <dt>Transporte</dt>
+              <dd>{{ formatarMoedaSimples(item.componentesCusto.transporte) }}</dd>
+            </div>
+          </dl>
+          <p class="lista-total">
+            Custo unitário total: {{ formatarMoedaSimples(custoTotalItem(item)) }}
+            · Margem {{ item.margemPercentual }}%
+          </p>
+          <p class="lista-preco">
+            Preço sugerido: {{ precoExibicao(item) }}
+          </p>
         </li>
       </ul>
     </section>
@@ -197,7 +381,7 @@ function precoExibicao(item: Item): string {
 <style scoped>
 .app {
   width: 100%;
-  max-width: 36rem;
+  max-width: 40rem;
   margin: 0 auto;
   padding: 1.25rem 1rem 2.5rem;
   text-align: left;
@@ -219,6 +403,37 @@ function precoExibicao(item: Item): string {
   color: var(--text);
   line-height: 1.45;
   font-size: 0.95rem;
+}
+
+.formula-box {
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  border: 1px dashed var(--accent-border);
+  background: var(--accent-bg);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.formula-titulo {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--text-h);
+}
+
+.formula-texto {
+  margin: 0;
+  color: var(--text);
+}
+
+.field-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.field-hint-grupo {
+  margin-bottom: 0.5rem;
 }
 
 .section-title {
@@ -247,26 +462,43 @@ function precoExibicao(item: Item): string {
   font-size: 0.9rem;
 }
 
-.alert p {
-  margin: 0.2rem 0;
+.custo-fieldset {
+  margin: 0;
+  padding: 0.75rem 0 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.fieldset-legend {
+  padding: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.grid-custo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 560px) {
+  .grid-custo {
+    grid-template-columns: 1fr;
+  }
+}
+
+.custo-preview {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--text-h);
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-}
-
-.field-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-@media (max-width: 520px) {
-  .field-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 .field label {
@@ -346,7 +578,7 @@ function precoExibicao(item: Item): string {
   background: var(--code-bg);
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.5rem;
 }
 
 .lista-nome {
@@ -354,8 +586,41 @@ function precoExibicao(item: Item): string {
   color: var(--text-h);
 }
 
-.lista-meta,
+.lista-detalhe {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem 1rem;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 520px) {
+  .lista-detalhe {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lista-dl-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.lista-dl-row dt {
+  margin: 0;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.lista-dl-row dd {
+  margin: 0;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.lista-total,
 .lista-preco {
+  margin: 0;
   font-size: 0.88rem;
   color: var(--text);
 }
