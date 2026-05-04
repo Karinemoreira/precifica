@@ -95,8 +95,3 @@ O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) corre em **pus
 - **Acessibilidade:** `aria-labelledby` no formulário, `aria-describedby` / `aria-invalid` nos campos, `aria-label` nos botões da lista, `role="alert"` nos erros.
 - **Mobile:** grelha responsiva, inputs com `font-size: 1rem` em ecrãs estreitos (reduz zoom no iOS), botões com altura mínima ~44px.
 
-## Cuidados com sugestões da IA
-
-- Rever **edge cases** (zeros, strings vazias, `NaN`).
-- Não commitar **segredos** (`.env` com chaves) nem dados pessoais reais.
-- Manter **commits** pequenos e mensagens **Conventional Commits** (`feat:`, `fix:`, `docs:`, `test:`, `chore:`).
