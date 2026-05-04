@@ -4,6 +4,10 @@
 
 **Precifica** é uma SPA **Vue 3 + Vite + TypeScript** (só front-end) para **precificar itens**: o custo unitário é a soma de **matéria-prima**, **embalagem**, **taxas administrativas** e **transporte**; a **margem (%)** aplica-se sobre esse total e gera o **preço de venda sugerido**. Inclui **CRUD**, **persistência em `localStorage`** e **testes** (Vitest).
 
+### Captura de ecrã
+
+![Precifica — formulário de novo item, composição do custo em R$, margem e exemplo na lista com preço sugerido](docs/screenshots/home.png)
+
 ## O que faz
 
 O custo unitário é a **soma** dos quatro componentes em reais por unidade. A regra de negócio está em [`src/domain/precificacao.ts`](src/domain/precificacao.ts), a formatação em **BRL** em [`src/formato/brl.ts`](src/formato/brl.ts) (`Intl.NumberFormat`) e os testes de domínio em [`src/domain/precificacao.spec.ts`](src/domain/precificacao.spec.ts).
