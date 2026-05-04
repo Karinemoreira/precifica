@@ -11,6 +11,29 @@ O custo unitário é a **soma** de: matéria-prima/ingredientes, embalagem, taxa
 - **Margem**: percentual entre **0** e **100**, aplicada **sobre o custo total** (markup).
 - **Fórmula**: `preço sugerido = custo unitário × (1 + margem / 100)`.
 
+### Fluxo de dados (MVP)
+
+```mermaid
+flowchart LR
+  subgraph ui [UI Vue]
+    Form[FormularioItem]
+    Lista[ListaItens]
+  end
+  subgraph domain [Dominio]
+    Sum[somarComponentesCusto]
+    Calc[calcularPrecoVenda]
+  end
+  subgraph persist [Persistencia]
+    LS[(localStorage)]
+  end
+  Form -->|criar ou atualizar| Lista
+  Lista --> Sum
+  Lista --> Calc
+  Lista <-->|precifica-itens-v1| LS
+```
+
+A lista é guardada automaticamente em **`localStorage`** (chave `precifica-itens-v1`): os dados ficam só neste navegador e podem ser apagados se limpar o armazenamento do site.
+
 ## Rodar localmente
 
 ```bash

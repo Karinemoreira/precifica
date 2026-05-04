@@ -7,6 +7,8 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: 'jsdom',
+      /* Evita corridas no mesmo localStorage entre ficheiros (ex.: app.spec vs itensLocal.spec). */
+      fileParallelism: false,
     },
   }),
 )

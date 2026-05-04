@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { Item } from './domain/item'
 import { novoIdItem } from './domain/item'
 import {
@@ -10,8 +10,10 @@ import {
   somarComponentesCusto,
   type ErrosFormularioItem,
 } from './domain/precificacao'
+import { carregarItensSalvos, persistirItens } from './storage/itensLocal'
 
 const itens = ref<Item[]>([])
+const idEmEdicao = ref<string | null>(null)
 const nome = ref('')
 const materiaPrimaStr = ref('')
 const embalagemStr = ref('')
@@ -19,6 +21,23 @@ const taxasStr = ref('')
 const transporteStr = ref('')
 const margemStr = ref('')
 const erros = ref<ErrosFormularioItem>({})
+
+const tituloFormulario = computed(() => (idEmEdicao.value ? 'Editar item' : 'Novo item'))
+const textoBotaoPrincipal = computed(() =>
+  idEmEdicao.value ? 'Salvar alterações' : 'Adicionar à lista',
+)
+
+onMounted(() => {
+  itens.value = carregarItensSalvos()
+})
+
+watch(
+  itens,
+  (lista) => {
+    persistirItens(lista)
+  },
+  { deep: true, flush: 'sync' },
+)
 
 const custoPreview = computed<number | null>(() => {
   const materiaPrima = parseNumeroDecimal(materiaPrimaStr.value)
@@ -47,7 +66,38 @@ function formatarMoedaSimples(valor: number): string {
   })
 }
 
-function adicionarItem(): void {
+function numeroParaCampo(n: number): string {
+  const s = String(n)
+  return s.includes('.') ? s.replace('.', ',') : s
+}
+
+function limparFormulario(): void {
+  nome.value = ''
+  materiaPrimaStr.value = ''
+  embalagemStr.value = ''
+  taxasStr.value = ''
+  transporteStr.value = ''
+  margemStr.value = ''
+  erros.value = {}
+}
+
+function iniciarEdicao(item: Item): void {
+  idEmEdicao.value = item.id
+  nome.value = item.nome
+  materiaPrimaStr.value = numeroParaCampo(item.componentesCusto.materiaPrima)
+  embalagemStr.value = numeroParaCampo(item.componentesCusto.embalagem)
+  taxasStr.value = numeroParaCampo(item.componentesCusto.taxasAdministrativas)
+  transporteStr.value = numeroParaCampo(item.componentesCusto.transporte)
+  margemStr.value = numeroParaCampo(item.margemPercentual)
+  erros.value = {}
+}
+
+function cancelarEdicao(): void {
+  idEmEdicao.value = null
+  limparFormulario()
+}
+
+function salvarOuAtualizarItem(): void {
   erros.value = {}
   const componentesCusto = {
     materiaPrima: parseNumeroDecimal(materiaPrimaStr.value),
@@ -65,21 +115,31 @@ function adicionarItem(): void {
     erros.value = validacao
     return
   }
-  itens.value = [
-    ...itens.value,
-    {
-      id: novoIdItem(),
-      nome: nome.value.trim(),
-      componentesCusto,
-      margemPercentual,
-    },
-  ]
-  nome.value = ''
-  materiaPrimaStr.value = ''
-  embalagemStr.value = ''
-  taxasStr.value = ''
-  transporteStr.value = ''
-  margemStr.value = ''
+  const nomeTrim = nome.value.trim()
+  if (idEmEdicao.value) {
+    const id = idEmEdicao.value
+    itens.value = itens.value.map((it) =>
+      it.id === id ? { ...it, nome: nomeTrim, componentesCusto, margemPercentual } : it,
+    )
+    idEmEdicao.value = null
+  } else {
+    itens.value = [
+      ...itens.value,
+      {
+        id: novoIdItem(),
+        nome: nomeTrim,
+        componentesCusto,
+        margemPercentual,
+      },
+    ]
+  }
+  limparFormulario()
+}
+
+function removerItem(id: string): void {
+  if (!globalThis.confirm('Remover este item da lista?')) return
+  itens.value = itens.value.filter((it) => it.id !== id)
+  if (idEmEdicao.value === id) cancelarEdicao()
 }
 
 function custoTotalItem(item: Item): number {
@@ -104,10 +164,10 @@ function precoExibicao(item: Item): string {
     <form
       class="form"
       novalidate
-      @submit.prevent="adicionarItem"
+      @submit.prevent="salvarOuAtualizarItem"
     >
       <h2 class="section-title">
-        Novo item
+        {{ tituloFormulario }}
       </h2>
 
       <div
@@ -310,13 +370,24 @@ function precoExibicao(item: Item): string {
         >{{ erros.margemPercentual }}</span>
       </div>
 
-      <button
-        type="submit"
-        class="btn-primary"
-        data-testid="submit"
-      >
-        Adicionar à lista
-      </button>
+      <div class="form-actions">
+        <button
+          type="submit"
+          class="btn-primary"
+          data-testid="submit"
+        >
+          {{ textoBotaoPrincipal }}
+        </button>
+        <button
+          v-if="idEmEdicao"
+          type="button"
+          class="btn-secondary"
+          data-testid="cancelar-edicao"
+          @click="cancelarEdicao"
+        >
+          Cancelar edição
+        </button>
+      </div>
     </form>
 
     <section
@@ -346,7 +417,27 @@ function precoExibicao(item: Item): string {
           :key="item.id"
           class="lista-item"
         >
-          <span class="lista-nome">{{ item.nome }}</span>
+          <div class="lista-top">
+            <span class="lista-nome">{{ item.nome }}</span>
+            <div class="lista-acoes">
+              <button
+                type="button"
+                class="btn-ghost"
+                data-testid="editar-item"
+                @click="iniciarEdicao(item)"
+              >
+                Editar
+              </button>
+              <button
+                type="button"
+                class="btn-danger"
+                data-testid="remover-item"
+                @click="removerItem(item.id)"
+              >
+                Remover
+              </button>
+            </div>
+          </div>
           <dl class="lista-detalhe">
             <div class="lista-dl-row">
               <dt>Matéria-prima</dt>
@@ -530,8 +621,15 @@ function precoExibicao(item: Item): string {
   color: #b91c1c;
 }
 
-.btn-primary {
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
   margin-top: 0.25rem;
+}
+
+.btn-primary {
   padding: 0.65rem 1rem;
   border: none;
   border-radius: 8px;
@@ -550,6 +648,78 @@ function precoExibicao(item: Item): string {
 .btn-primary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.btn-secondary {
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-h);
+  background: transparent;
+  border: 2px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--code-bg);
+}
+
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-ghost {
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent-border);
+}
+
+.btn-ghost:hover {
+  background: var(--accent-bg);
+}
+
+.btn-danger {
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #991b1b;
+  background: transparent;
+  border: 1px solid #f87171;
+}
+
+.btn-danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.btn-ghost:focus-visible,
+.btn-danger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.lista-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.lista-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 .lista-section {
