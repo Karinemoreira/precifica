@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 BACKLOG.md
+
+# Plano local Cursor / MVP (não versionar)
+mvp_vue_precificação*.plan.md

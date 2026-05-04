@@ -2,7 +2,13 @@
 
 **Precifica** é uma aplicação web para ajudar a definir o **preço de venda sugerido** de itens a partir do **custo** e de uma **margem percentual**. O objetivo é um fluxo simples e rápido no navegador: cadastrar itens, ver o preço calculado e evoluir depois para um produto mais completo.
 
-Hoje o repositório contém o **esqueleto inicial** (Vue 3 com Vite e TypeScript), testes e lint já configurados; as telas de precificação e a lógica de negócio vêm nas próximas entregas.
+O código inclui **cadastro mínimo** (nome, custo, margem) e **lista** com o preço calculado. A regra de negócio e os limites estão em [`src/domain/precificacao.ts`](src/domain/precificacao.ts) e nos testes em [`src/domain/precificacao.spec.ts`](src/domain/precificacao.spec.ts).
+
+### Precificação (política do MVP)
+
+- **Margem**: percentual entre **0** e **100**, aplicada **sobre o custo** (markup).
+- **Fórmula**: `preço sugerido = custo unitário × (1 + margem / 100)`.
+- **Validação**: nome obrigatório; custo ≥ 0; margem dentro do intervalo (valores não numéricos são rejeitados).
 
 ## Rodar localmente
 
