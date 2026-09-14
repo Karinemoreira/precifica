@@ -1,97 +1,148 @@
 # Precifica
 
-## Mini-projeto
+## Descrição do sistema em linguagem natural
 
-**Precifica** é uma SPA **Vue 3 + Vite + TypeScript** (só front-end) para **precificar itens**: o custo unitário é a soma de **matéria-prima**, **embalagem**, **taxas administrativas** e **transporte**; a **margem (%)** aplica-se sobre esse total e gera o **preço de venda sugerido**. Inclui **CRUD**, **persistência em `localStorage`** e **testes** (Vitest).
+### Escopo
+**Precifica** é um MVP front-end para apoiar a precificação de itens a partir de uma composição de custos e de uma margem desejada. A aplicação permite:
+- registrar itens com componentes de custo (matéria-prima, embalagem, taxas administrativas e transporte);
+- calcular custo unitário total;
+- aplicar margem (%) para sugerir preço de venda;
+- listar, editar e remover itens;
+- persistir os dados localmente no navegador.
 
-### Captura de ecrã
+### Nível da visão
+Esta documentação adota uma visão de **containers/componentes de alto nível** (inspirada no C4), adequada para entender responsabilidades técnicas do MVP sem entrar em detalhes de implementação linha a linha.
 
-![Precifica — formulário de novo item, composição do custo em R$, margem e exemplo na lista com preço sugerido](docs/screenshots/home.png)
+### Limites e responsabilidades
+- **Frontend SPA (Vue 3 + TypeScript)**
+  - Orquestra estado da interface e jornadas de usuário (cadastro, edição, remoção).
+  - Valida entradas básicas de formulário.
+  - Aciona regras de negócio para cálculo.
+- **Módulo de domínio (`src/domain`)**
+  - Centraliza as regras de cálculo de custo e preço sugerido.
+  - Mantém a política de margem do MVP (markup sobre custo).
+- **Módulo de formatação (`src/formato`)**
+  - Formata valores monetários em BRL de forma consistente.
+- **Módulo de persistência (`src/storage`)**
+  - Salva e recupera itens em `localStorage` (chave `precifica-itens-v1`).
+- **Sem backend neste MVP**
+  - Não há API, banco relacional, autenticação, autorização ou multiusuário.
 
-## O que faz
+### Integrações
+Integrações atuais são locais e de build/runtime:
+- **Browser `localStorage`** para persistência no dispositivo do usuário;
+- **Runtime Vue 3** para renderização reativa;
+- **Tooling Vite/TypeScript** para build e desenvolvimento.
 
-O custo unitário é a **soma** dos quatro componentes em reais por unidade. A regra de negócio está em [`src/domain/precificacao.ts`](src/domain/precificacao.ts), a formatação em **BRL** em [`src/formato/brl.ts`](src/formato/brl.ts) (`Intl.NumberFormat`) e os testes de domínio em [`src/domain/precificacao.spec.ts`](src/domain/precificacao.spec.ts).
+Não existem integrações externas com ERPs, gateways de pagamento, serviços fiscais, catálogos de produto ou autenticação de terceiros.
 
-### Precificação (política do MVP)
+### Restrições
+- Persistência limitada ao navegador/dispositivo atual;
+- Ausência de sincronização entre dispositivos;
+- Sem controle de concorrência e sem trilha de auditoria;
+- Regras de cálculo focadas no cenário de markup simples (não contempla regimes tributários complexos);
+- Dependência de conectividade apenas para carregar os assets (depois, lógica é local).
 
-- **Componentes**: cada valor ≥ 0 (campo vazio ou inválido é rejeitado).
-- **Custo unitário**: `somarComponentesCusto` nos quatro campos.
-- **Margem**: 0 a 100 %, **markup sobre o custo total**.
-- **Fórmula**: `preço sugerido = custo unitário × (1 + margem / 100)`.
+### Lacunas (gaps) para evolução
+- Backend/API para armazenamento centralizado e histórico;
+- Login e gestão de usuários/perfis;
+- Catálogo de produtos, categorias e fornecedores;
+- Simulações avançadas (impostos por regime, descontos, comissões, cenários); 
+- Exportação/importação (CSV/Excel) e relatórios;
+- Observabilidade (telemetria de uso e erros);
+- Testes E2E e suíte de contrato para eventual API futura.
 
-### Fluxo de dados (MVP)
+---
+
+## Diagrama estrutural (visão de containers, inspirada no C4)
 
 ```mermaid
 flowchart LR
-  subgraph ui [UI Vue]
-    Form[FormularioItem]
-    Lista[ListaItens]
+  U[Usuário]
+
+  subgraph B[Navegador]
+    SPA[SPA Precifica\nVue 3 + TypeScript]
+    UI[Camada de UI\nFormulário + Lista]
+    DOM[Domínio de Precificação\nRegras de cálculo]
+    FMT[Formatação BRL\nIntl.NumberFormat]
+    STG[Persistência Local\nlocalStorage adapter]
+    LS[(localStorage\nprecifica-itens-v1)]
+
+    SPA --> UI
+    UI --> DOM
+    UI --> FMT
+    UI --> STG
+    STG <--> LS
   end
-  subgraph domain [Dominio]
-    Sum[somarComponentesCusto]
-    Calc[calcularPrecoVenda]
-  end
-  subgraph persist [Persistencia]
-    LS[(localStorage)]
-  end
-  Form -->|criar ou atualizar| Lista
-  Lista --> Sum
-  Lista --> Calc
-  Lista <-->|precifica-itens-v1| LS
+
+  U --> SPA
 ```
 
-A lista é guardada em **`localStorage`** (`precifica-itens-v1`): dados **só neste navegador**; limpar o armazenamento do site apaga os itens.
+---
 
-## Requisitos
+## Diagrama comportamental (sequência de jornada crítica)
 
-- **Node.js** 20.x ou **22.x** (LTS recomendado), com **npm** 10+.
+Jornada crítica escolhida: **cadastrar item e obter preço sugerido persistido**.
 
-## Instalar e correr
+```mermaid
+sequenceDiagram
+  actor U as Usuário
+  participant UI as App.vue (UI)
+  participant D as Domínio
+  participant F as Formatação BRL
+  participant S as Storage Adapter
+  participant L as localStorage
 
-```bash
-npm install
-npm run dev
+  U->>UI: Preenche custos + margem e clica em "Salvar"
+  UI->>UI: Validar campos (>= 0, margem no intervalo)
+  alt dados inválidos
+    UI-->>U: Exibe erros de validação
+  else dados válidos
+    UI->>D: somarComponentesCusto(componentes)
+    D-->>UI: custoUnitario
+    UI->>D: calcularPrecoVenda(custoUnitario, margem)
+    D-->>UI: precoSugerido
+    UI->>F: formatar BRL(custo, preco)
+    F-->>UI: valores formatados
+    UI->>S: salvarItens(listaAtualizada)
+    S->>L: setItem("precifica-itens-v1", json)
+    L-->>S: OK
+    S-->>UI: confirmação
+    UI-->>U: Item aparece na lista com preço sugerido
+  end
 ```
 
-(Na primeira vez, clona o repositório e entra na pasta do projeto antes de `npm install`.)
+---
 
-Abre o endereço que o Vite indicar (por defeito `http://localhost:5173`).
+## Decisões e ajustes sobre a geração por GenAI
 
-## Como testar e validar
+Para chegar aos diagramas e descrição finais, os seguintes ajustes foram aplicados sobre uma geração inicial automática:
 
-```bash
-npm run lint    # ESLint
-npm run test    # Vitest (domínio, storage, componente)
-npm run build   # vue-tsc + build de produção
-npm run preview # opcional: pré-visualizar o build
-```
+1. **Delimitação explícita de escopo**
+   - Ajustado para deixar claro que o sistema é **MVP somente front-end**, sem backend.
 
-Convém correr **lint**, **test** e **build** antes de abrir PR ou de entregar no fórum.
+2. **Refinamento de fronteiras arquiteturais**
+   - Separação em responsabilidades: UI, domínio, formatação e persistência local.
+   - Evitou-se sugerir componentes não existentes no código atual (ex.: API REST, banco servidor).
 
-## CI no GitHub
+3. **Correção de semântica de negócio no fluxo**
+   - Sequência alinhada à política documentada: preço sugerido por markup sobre custo.
+   - Inclusão do caminho alternativo de validação inválida (erro para o usuário).
 
-O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) corre em **push/PR** para `main` e `develop`: `npm ci`, `npm run lint`, `npm run test`, `npm run build` (Node 22).
+4. **Ajuste de nomenclatura técnica**
+   - Termos padronizados para facilitar manutenção: “Domínio”, “Storage Adapter”, “localStorage key”.
 
-## Versionamento (Gitflow)
+5. **Foco em legibilidade de README**
+   - Estrutura em blocos: descrição natural, estrutural, comportamental, decisões.
+   - Mermaid mantido simples para renderização nativa no GitHub.
 
-- Branches prefixadas: **`feat/`** (funcionalidade), **`test/`** (testes/qualidade), **`docs/`** (documentação); integração via PR para **`main`** / **`develop`** conforme o fluxo da equipa.
-- **Tags semver** até **`v1.0.0`** para marcos estáveis do MVP.
+6. **Assunções registradas**
+   - Onde não havia evidência de integrações externas, assumiu-se ausência e isso foi explicitado como limite/lacuna.
 
-## Como a IA apoiou
+---
 
-- **Planeamento**: fases, backlog, *Conventional Commits*.
-- **Código**: boilerplate Vue/Vite, separação `vite.config` / `vitest.config`, módulo de persistência, sugestões de testes.
-- **Documentação**: rascunhos de README; o resultado foi **revisto** para bater certo com o código.
-
-**Validação humana:** prompts e patches da IA foram **testados** (`npm run test`, `npm run build`, revisão de fórmulas e limites). A IA **não** substitui decisão de produto nem revisão de regras de negócio.
-
-## Desafios e decisões técnicas
-
-- **Custo em componentes** em vez de um único campo de custo: modela melhor o mundo real, mas aumenta validação e UI.
-- **Margem 0–100 %** como markup sobre o custo total; documentado no README para evitar ambiguidade com “margem sobre preço de venda”.
-- **`localStorage` + Vitest:** `fileParallelism: false` no Vitest para evitar **corridas** entre ficheiros de teste no mesmo `localStorage`.
-- **`watch` com `flush: 'sync'`** ao persistir itens, para a gravação ocorrer na mesma “voltagem” que a mutação (útil em testes e consistência).
-- **Formatação BRL:** `Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })` centralizada em [`src/formato/brl.ts`](src/formato/brl.ts).
-- **Acessibilidade:** `aria-labelledby` no formulário, `aria-describedby` / `aria-invalid` nos campos, `aria-label` nos botões da lista, `role="alert"` nos erros.
-- **Mobile:** grelha responsiva, inputs com `font-size: 1rem` em ecrãs estreitos (reduz zoom no iOS), botões com altura mínima ~44px.
-
+## Observação
+Este README descreve a arquitetura **atual** do MVP. Caso o projeto evolua para backend/API, recomenda-se atualizar esta documentação com:
+- visão C4 em níveis adicionais (Container e Component detalhados);
+- diagrama de contexto com sistemas externos;
+- novo diagrama de sequência para autenticação e sincronização de dados.
