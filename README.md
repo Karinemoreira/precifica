@@ -17,7 +17,7 @@ Esta documentação adota uma visão de **containers/componentes de alto nível*
 - **Frontend SPA (Vue 3 + TypeScript)**
   - Orquestra estado da interface e jornadas de usuário (cadastro, edição, remoção).
   - Valida entradas básicas de formulário.
-  - Aciona regras de negócio para cálculo.
+  - Aciona regras de negócio para cálculo e apresenta os resultados.
 - **Módulo de domínio (`src/domain`)**
   - Centraliza as regras de cálculo de custo e preço sugerido.
   - Mantém a política de margem do MVP (markup sobre custo).
@@ -25,6 +25,10 @@ Esta documentação adota uma visão de **containers/componentes de alto nível*
   - Formata valores monetários em BRL de forma consistente.
 - **Módulo de persistência (`src/storage`)**
   - Salva e recupera itens em `localStorage` (chave `precifica-itens-v1`).
+- **Fonte de verdade em runtime**
+  - Durante a sessão, a lista reativa `itens` em `App.vue` é a fonte de verdade.
+  - Ao iniciar, a lista é carregada do navegador; após cada alteração, um `watch` profundo persiste a lista.
+  - O preço sugerido não é armazenado: é derivado da composição de custos e da margem quando a interface renderiza.
 - **Sem backend neste MVP**
   - Não há API, banco relacional, autenticação, autorização ou multiusuário.
 
@@ -61,12 +65,12 @@ flowchart LR
   U[Usuário]
 
   subgraph B[Navegador]
-    SPA[SPA Precifica\nVue 3 + TypeScript]
-    UI[Camada de UI\nFormulário + Lista]
-    DOM[Domínio de Precificação\nRegras de cálculo]
-    FMT[Formatação BRL\nIntl.NumberFormat]
-    STG[Persistência Local\nlocalStorage adapter]
-    LS[(localStorage\nprecifica-itens-v1)]
+    SPA[SPA Precifica<br/>Vue 3 + TypeScript]
+    UI[Camada de UI<br/>Formulário + Lista]
+    DOM[Domínio de Precificação<br/>Regras de cálculo]
+    FMT[Formatação BRL<br/>Intl.NumberFormat]
+    STG[Persistência Local<br/>localStorage adapter]
+    LS[(localStorage<br/>precifica-itens-v1)]
 
     SPA --> UI
     UI --> DOM
@@ -93,21 +97,27 @@ sequenceDiagram
   participant S as Storage Adapter
   participant L as localStorage
 
+  U->>UI: Abre a aplicação
+  UI->>S: carregarItensSalvos()
+  S->>L: getItem("precifica-itens-v1")
+  L-->>S: JSON ou ausência de dados
+  S-->>UI: lista válida (ou lista vazia)
+  UI-->>U: Renderiza formulário e itens salvos
   U->>UI: Preenche custos + margem e clica em "Salvar"
   UI->>UI: Validar campos (>= 0, margem no intervalo)
   alt dados inválidos
     UI-->>U: Exibe erros de validação
   else dados válidos
+    UI->>UI: Adiciona ou atualiza item na lista reativa
+    UI->>S: persistirItens(listaAtualizada) via watch
+    S->>L: setItem("precifica-itens-v1", json)
+    L-->>S: OK
     UI->>D: somarComponentesCusto(componentes)
     D-->>UI: custoUnitario
     UI->>D: calcularPrecoVenda(custoUnitario, margem)
     D-->>UI: precoSugerido
-    UI->>F: formatar BRL(custo, preco)
+    UI->>F: formatar BRL(custo e preço)
     F-->>UI: valores formatados
-    UI->>S: salvarItens(listaAtualizada)
-    S->>L: setItem("precifica-itens-v1", json)
-    L-->>S: OK
-    S-->>UI: confirmação
     UI-->>U: Item aparece na lista com preço sugerido
   end
 ```
@@ -128,6 +138,7 @@ Para chegar aos diagramas e descrição finais, os seguintes ajustes foram aplic
 3. **Correção de semântica de negócio no fluxo**
    - Sequência alinhada à política documentada: preço sugerido por markup sobre custo.
    - Inclusão do caminho alternativo de validação inválida (erro para o usuário).
+   - Fluxo ajustado para refletir o código: carregamento inicial, persistência reativa e cálculo derivado na renderização.
 
 4. **Ajuste de nomenclatura técnica**
    - Termos padronizados para facilitar manutenção: “Domínio”, “Storage Adapter”, “localStorage key”.
@@ -138,6 +149,7 @@ Para chegar aos diagramas e descrição finais, os seguintes ajustes foram aplic
 
 6. **Assunções registradas**
    - Onde não havia evidência de integrações externas, assumiu-se ausência e isso foi explicitado como limite/lacuna.
+   - O diagrama representa `localStorage` como dependência do navegador, não como um banco compartilhado.
 
 ---
 
