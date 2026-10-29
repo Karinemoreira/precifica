@@ -5,8 +5,6 @@ import {
   formularioTemErros,
   parseNumeroDecimal,
   somarComponentesCusto,
-  MARGEM_PERCENTUAL_MAX,
-  MARGEM_PERCENTUAL_MIN,
 } from './precificacao'
 
 const componentesOk = {
@@ -85,20 +83,22 @@ describe('validarItemParaCadastro', () => {
   })
 
   it('rejeita componente negativo ou não finito', () => {
-    expect(
-      validarItemParaCadastro({
+    const casos = [
+      ['materiaPrima', -1],
+      ['embalagem', NaN],
+      ['taxasAdministrativas', Infinity],
+      ['transporte', -Infinity],
+    ] as const
+
+    for (const [campo, valor] of casos) {
+      const erros = validarItemParaCadastro({
         nome: 'x',
-        componentesCusto: { ...componentesOk, materiaPrima: -1 },
+        componentesCusto: { ...componentesOk, [campo]: valor },
         margemPercentual: 0,
-      }).materiaPrima,
-    ).toBeTruthy()
-    expect(
-      validarItemParaCadastro({
-        nome: 'x',
-        componentesCusto: { ...componentesOk, embalagem: NaN },
-        margemPercentual: 0,
-      }).embalagem,
-    ).toBeTruthy()
+      })
+
+      expect(erros[campo]).toBe('Informe um número maior ou igual a zero.')
+    }
   })
 
   it('aceita todos os componentes zero', () => {
@@ -123,21 +123,21 @@ describe('validarItemParaCadastro', () => {
         componentesCusto: componentesOk,
         margemPercentual: -0.01,
       }).margemPercentual,
-    ).toContain(String(MARGEM_PERCENTUAL_MIN))
+    ).toBe('Margem deve estar entre 0 e 100%.')
     expect(
       validarItemParaCadastro({
         nome: 'x',
         componentesCusto: componentesOk,
-        margemPercentual: MARGEM_PERCENTUAL_MAX + 1,
+        margemPercentual: 100.01,
       }).margemPercentual,
-    ).toBeTruthy()
+    ).toBe('Margem deve estar entre 0 e 100%.')
     expect(
       validarItemParaCadastro({
         nome: 'x',
         componentesCusto: componentesOk,
         margemPercentual: NaN,
       }).margemPercentual,
-    ).toBeTruthy()
+    ).toBe('Margem deve estar entre 0 e 100%.')
   })
 
   it('aceita margem nos limites', () => {
@@ -146,7 +146,7 @@ describe('validarItemParaCadastro', () => {
         validarItemParaCadastro({
           nome: 'a',
           componentesCusto: componentesOk,
-          margemPercentual: MARGEM_PERCENTUAL_MIN,
+          margemPercentual: 0,
         }),
       ),
     ).toBe(false)
@@ -155,7 +155,7 @@ describe('validarItemParaCadastro', () => {
         validarItemParaCadastro({
           nome: 'a',
           componentesCusto: componentesOk,
-          margemPercentual: MARGEM_PERCENTUAL_MAX,
+          margemPercentual: 100,
         }),
       ),
     ).toBe(false)
