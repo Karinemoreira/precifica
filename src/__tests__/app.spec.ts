@@ -100,6 +100,76 @@ describe('App', () => {
     expect(localStorage.getItem(ITENS_STORAGE_KEY)).toBe('[]')
   })
 
+  it('INT-09 rejeita custos negativos, não numéricos e não finitos', async () => {
+    const casos = [
+      ['-1', 'Informe um número maior ou igual a zero.'],
+      ['texto', 'Informe um número maior ou igual a zero.'],
+      ['Infinity', 'Informe um número maior ou igual a zero.'],
+    ]
+
+    for (const [valor, mensagem] of casos) {
+      localStorage.clear()
+      const wrapper = mount(App)
+      await preencherItemValido(wrapper, { nome: 'Item inválido', materiaPrima: valor, embalagem: '0', taxas: '0', transporte: '0', margem: '0' })
+      await wrapper.get('form').trigger('submit.prevent')
+
+      expect(wrapper.text()).toContain(mensagem)
+      expect(wrapper.find('[data-testid="lista-vazia"]').exists()).toBe(true)
+      wrapper.unmount()
+    }
+  })
+
+  it('INT-10 rejeita margem abaixo de 0%', async () => {
+    const wrapper = mount(App)
+    await preencherItemValido(wrapper, { nome: 'Item inválido', materiaPrima: '10', embalagem: '0', taxas: '0', transporte: '0', margem: '-0,01' })
+    await wrapper.get('form').trigger('submit.prevent')
+
+    expect(wrapper.text()).toContain('Margem deve estar entre 0 e 100%.')
+    expect(wrapper.find('[data-testid="lista-vazia"]').exists()).toBe(true)
+  })
+
+  it('INT-11 rejeita nome vazio ou composto apenas por espaços', async () => {
+    for (const nome of ['', '   ']) {
+      localStorage.clear()
+      const wrapper = mount(App)
+      await preencherItemValido(wrapper, { nome, materiaPrima: '10', embalagem: '0', taxas: '0', transporte: '0', margem: '0' })
+      await wrapper.get('form').trigger('submit.prevent')
+
+      expect(wrapper.text()).toContain('Informe o nome do item.')
+      expect(wrapper.find('[data-testid="lista-vazia"]').exists()).toBe(true)
+      wrapper.unmount()
+    }
+  })
+
+  it('INT-12 interpreta valores monetários com vírgula e ponto decimal', async () => {
+    const casos = [
+      ['12,50', 'R$ 12,50'],
+      ['12.50', 'R$ 12,50'],
+    ]
+
+    for (const [valor, custoFormatado] of casos) {
+      localStorage.clear()
+      const wrapper = mount(App)
+      await preencherItemValido(wrapper, { nome: 'Decimal', materiaPrima: valor, embalagem: '0', taxas: '0', transporte: '0', margem: '0' })
+      await wrapper.get('form').trigger('submit.prevent')
+
+      expect(textoNormalizado(wrapper.get('[data-testid="lista-itens"]'))).toContain(
+        `Custo unitário total: ${custoFormatado}`,
+      )
+      wrapper.unmount()
+    }
+  })
+
+  it('INT-13 inicia com lista vazia quando a leitura do localStorage falha', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage indisponível')
+    })
+
+    const wrapper = mount(App)
+
+    expect(wrapper.find('[data-testid="lista-vazia"]').exists()).toBe(true)
+  })
+
   it('INT-06 edita item e atualiza a lista', async () => {
     const wrapper = mount(App)
     await preencherItemValido(wrapper)
