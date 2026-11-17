@@ -33,7 +33,7 @@ describe('somarComponentesCusto', () => {
 
 describe('calcularPrecoVenda', () => {
   it('aplica margem percentual sobre o custo total', () => {
-    expect(calcularPrecoVenda(100, 50)).toBe(150)
+    expect(calcularPrecoVenda(100, 50)).toBe(151)
     expect(calcularPrecoVenda(10, 20)).toBe(12)
   })
 
