@@ -6,16 +6,105 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  unit_test:
     runs-on: ubuntu-latest
+    outputs:
+      failed: ${{ steps.validation.outcome == 'failure' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run test
-      - run: npm run build
+      - run: mkdir -p ci-logs
+      - id: validation
+        name: Validate project
+        shell: bash
+        run: |
+          set +e
+          failed=0
+
+          run_check() {
+            local label="$1"
+            shift
+            echo "::group::$label"
+            "$@" 2>&1 | tee "ci-logs/${label// /_}.log"
+            local status=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            if [ "$status" -ne 0 ]; then
+              failed=1
+            fi
+          }
+
+          run_check npm_ci npm ci
+          run_check lint npm run lint
+          run_check test npm run test
+          run_check build npm run build
+
+          exit "$failed"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs-${{ github.run_id }}
+          path: ci-logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+  ai_debugger:
+    name: AI failure diagnosis
+    needs: unit_test
+    if: >-
+      always() &&
+      needs.unit_test.result == 'failure' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      # Use trusted base-branch automation code; never execute the PR's copy
+      # while GROQ_API_KEY is available.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-logs-${{ github.run_id }}
+          path: ci-logs
+      - name: Collect failed run logs and pull request diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run view "$RUN_ID" --repo "$REPOSITORY" --log-failed > ci-run.log 2>/dev/null || true
+          if [ ! -s ci-run.log ]; then
+            find ci-logs -type f -print0 | sort -z | xargs -0 cat > ci-run.log
+          fi
+          gh pr diff "$PR_NUMBER" --repo "$REPOSITORY" > pull-request.diff
+      - name: Generate diagnosis
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: llama-3.3-70b-versatile
+          AI_DEBUGGER_MAX_LOG_CHARS: 50000
+          AI_DEBUGGER_MAX_DIFF_CHARS: 30000
+          AI_DEBUGGER_TIMEOUT_SECONDS: 45
+        run: python3 .github/scripts/diagnose_ci_failure.py --logs ci-run.log --diff pull-request.diff --output diagnosis.md
+      - name: Publish diagnosis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body-file diagnosis.md

@@ -158,3 +158,58 @@ Este README descreve a arquitetura **atual** do MVP. Caso o projeto evolua para 
 - visão C4 em níveis adicionais (Container e Component detalhados);
 - diagrama de contexto com sistemas externos;
 - novo diagrama de sequência para autenticação e sincronização de dados.
+
+## Diagnóstico de falhas de CI/CD com GenAI
+
+O workflow `.github/workflows/ci.yml` valida o projeto e, quando a validação
+falha em um Pull Request interno, executa um segundo job de diagnóstico. O job
+`unit_test` instala as dependências com `npm ci`, executa `npm run lint`,
+`npm run test` e `npm run build`, além de guardar os logs como artefato. O job
+`ai_debugger` recupera os logs da execução, obtém o diff do Pull Request,
+envia somente esses dados redigidos ao GroqCloud e publica um comentário com a
+análise. Ele nunca modifica arquivos, cria commits ou executa sugestões da IA.
+
+### Configuração
+
+1. Crie o secret `GROQ_API_KEY` em **Settings > Secrets and variables >
+   Actions** do repositório.
+2. O workflow usa o modelo `llama-3.3-70b-versatile` e as permissões mínimas
+   `actions: read`, `contents: read` e `pull-requests: write` apenas no job
+   que publica o comentário.
+3. Para PRs vindos de forks, o diagnóstico é deliberadamente ignorado: secrets
+   não são expostos a código externo. A validação do PR continua sendo executada.
+
+O script `.github/scripts/diagnose_ci_failure.py` usa apenas a biblioteca padrão
+do Python. Ele aplica limites de tamanho, mascara padrões comuns de tokens e
+chaves, trata timeout/erros HTTP e exige uma resposta JSON com campos
+estruturados. Logs e diffs são delimitados como dados não confiáveis no prompt;
+instruções encontradas neles são ignoradas. O job executa a cópia do script
+presente na branch de destino, não a cópia potencialmente alterada pelo PR.
+
+### Reprodução demonstrativa
+
+Para demonstrar o fluxo sem deixar defeito na branch principal:
+
+1. Crie uma branch temporária a partir de `main`.
+2. Altere temporariamente uma expectativa em `src/domain/precificacao.spec.ts`
+   (por exemplo, espere `151` em vez de `150` para uma margem de 50%).
+3. Abra um Pull Request dessa branch e aguarde o `unit_test` falhar.
+4. Verifique o comentário do `ai_debugger` no Pull Request.
+5. Reverta a alteração ou feche a branch temporária; não faça merge do defeito.
+
+Exemplo **simulado** de comentário:
+
+> **Resumo da falha:** o teste esperava um preço diferente do valor calculado.
+> **Causa provável:** a expectativa do teste não corresponde à regra de markup.
+> **Confiança:** alta.
+>
+> Este exemplo é ilustrativo; a resposta real depende dos logs e do diff
+> enviados ao GroqCloud.
+
+### Limitações e cuidados
+
+O diagnóstico é probabilístico e não substitui a revisão humana. O contexto é
+limitado aos logs e ao diff, pode não identificar a linha exata e não conhece
+dependências externas. Mesmo com redaction, não inclua dados pessoais ou
+segredos nos commits, nos testes ou nas mensagens do Pull Request. A solução
+não executa comandos sugeridos pela IA e não aplica correções automaticamente.
