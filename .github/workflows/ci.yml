@@ -94,7 +94,7 @@ jobs:
       - name: Generate diagnosis
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GROQ_MODEL: llama-3.3-70b-versatile
+          GROQ_MODEL: openai/gpt-oss-120b
           AI_DEBUGGER_MAX_LOG_CHARS: 50000
           AI_DEBUGGER_MAX_DIFF_CHARS: 30000
           AI_DEBUGGER_TIMEOUT_SECONDS: 45

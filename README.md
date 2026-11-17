@@ -173,7 +173,7 @@ análise. Ele nunca modifica arquivos, cria commits ou executa sugestões da IA.
 
 1. Crie o secret `GROQ_API_KEY` em **Settings > Secrets and variables >
    Actions** do repositório.
-2. O workflow usa o modelo `llama-3.3-70b-versatile` e as permissões mínimas
+2. O workflow usa o modelo `openai/gpt-oss-120b` e as permissões mínimas
    `actions: read`, `contents: read` e `pull-requests: write` apenas no job
    que publica o comentário.
 3. Para PRs vindos de forks, o diagnóstico é deliberadamente ignorado: secrets
@@ -185,6 +185,9 @@ chaves, trata timeout/erros HTTP e exige uma resposta JSON com campos
 estruturados. Logs e diffs são delimitados como dados não confiáveis no prompt;
 instruções encontradas neles são ignoradas. O job executa a cópia do script
 presente na branch de destino, não a cópia potencialmente alterada pelo PR.
+Quando o comentário é publicado, ele registra o provedor, o identificador do
+modelo lido da mesma configuração usada no payload da API, o horário UTC, o
+status HTTP validado e o resultado do diagnóstico.
 
 ### Reprodução demonstrativa
 

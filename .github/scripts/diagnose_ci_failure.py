@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -13,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
 MAX_LOG_CHARS = int(os.getenv("AI_DEBUGGER_MAX_LOG_CHARS", "50000"))
 MAX_DIFF_CHARS = int(os.getenv("AI_DEBUGGER_MAX_DIFF_CHARS", "30000"))
@@ -69,7 +70,7 @@ determined. Confidence must be one of: high, medium, low.
 """
 
 
-def request_diagnosis(prompt: str) -> dict[str, str]:
+def request_diagnosis(prompt: str) -> tuple[dict[str, str], int]:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not configured")
@@ -97,6 +98,7 @@ def request_diagnosis(prompt: str) -> dict[str, str]:
     )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            status_code = response.status
             response_data = json.loads(response.read().decode("utf-8"))
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
         raise RuntimeError(f"Groq request failed: {error}") from error
@@ -121,10 +123,14 @@ def request_diagnosis(prompt: str) -> dict[str, str]:
     )
     if not all(isinstance(parsed.get(field), str) for field in fields):
         raise RuntimeError("Groq response does not match the expected schema")
-    return {field: parsed[field].strip() for field in fields}
+    return {field: parsed[field].strip() for field in fields}, status_code
 
 
-def render_markdown(diagnosis: dict[str, str]) -> str:
+def render_markdown(
+    diagnosis: dict[str, str],
+    analyzed_at: str,
+    api_status: str,
+) -> str:
     labels = (
         ("Resumo da falha", "summary"),
         ("Arquivo e linha", "location"),
@@ -135,7 +141,18 @@ def render_markdown(diagnosis: dict[str, str]) -> str:
         ("Nível de confiança", "confidence"),
         ("Testes recomendados", "recommended_tests"),
     )
-    sections = [MARKER, "## Diagnóstico automatizado de CI/CD", ""]
+    sections = [
+        MARKER,
+        "## Diagnóstico automatizado de CI/CD",
+        "",
+        "### Rastreabilidade",
+        "- **Provedor:** GroqCloud",
+        f"- **Modelo:** `{MODEL}`",
+        f"- **Data e horário da análise (UTC):** {analyzed_at}",
+        f"- **Status da chamada à API:** {api_status}",
+        f"- **Resultado do diagnóstico:** {diagnosis['summary']}",
+        "",
+    ]
     for label, field in labels:
         sections.extend((f"### {label}", diagnosis[field], ""))
     sections.append(
@@ -155,8 +172,13 @@ def main() -> int:
     try:
         logs = read_input(args.logs, MAX_LOG_CHARS)
         diff = read_input(args.diff, MAX_DIFF_CHARS)
-        diagnosis = request_diagnosis(build_prompt(logs, diff))
-        Path(args.output).write_text(render_markdown(diagnosis), encoding="utf-8")
+        diagnosis, status_code = request_diagnosis(build_prompt(logs, diff))
+        analyzed_at = datetime.now(timezone.utc).isoformat()
+        api_status = f"sucesso (HTTP {status_code}; resposta JSON validada)"
+        Path(args.output).write_text(
+            render_markdown(diagnosis, analyzed_at, api_status),
+            encoding="utf-8",
+        )
     except RuntimeError as error:
         print(f"AI debugger failed: {error}", file=sys.stderr)
         return 1
