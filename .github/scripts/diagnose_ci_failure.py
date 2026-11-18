@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -13,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
 MAX_LOG_CHARS = int(os.getenv("AI_DEBUGGER_MAX_LOG_CHARS", "50000"))
 MAX_DIFF_CHARS = int(os.getenv("AI_DEBUGGER_MAX_DIFF_CHARS", "30000"))
@@ -28,6 +29,13 @@ SECRET_PATTERNS = (
     (re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"), "[REDACTED_API_KEY]"),
     (re.compile(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", re.DOTALL), "[REDACTED_PRIVATE_KEY]"),
 )
+
+
+class GroqApiError(RuntimeError):
+    def __init__(self, status: str, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
 
 
 def redact(text: str, limit: int) -> str:
@@ -69,7 +77,7 @@ determined. Confidence must be one of: high, medium, low.
 """
 
 
-def request_diagnosis(prompt: str) -> dict[str, str]:
+def request_diagnosis(prompt: str) -> tuple[dict[str, str], int]:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not configured")
@@ -97,9 +105,25 @@ def request_diagnosis(prompt: str) -> dict[str, str]:
     )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            status_code = response.status
             response_data = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"Groq request failed: {error}") from error
+    except urllib.error.HTTPError as error:
+        try:
+            body = json.loads(error.read(2000).decode("utf-8", "replace"))
+            groq_error = body.get("error", {})
+            if isinstance(groq_error, dict):
+                detail = groq_error.get("message") or groq_error.get("code") or "HTTP response error"
+            else:
+                detail = str(groq_error) if groq_error else "HTTP response error"
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            detail = "HTTP response error"
+        detail = redact(str(detail), 500)
+        raise GroqApiError(
+            f"falha (HTTP {error.code})",
+            detail,
+        ) from error
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise GroqApiError("falha de transporte", str(error)) from error
 
     try:
         content = response_data["choices"][0]["message"]["content"]
@@ -121,10 +145,14 @@ def request_diagnosis(prompt: str) -> dict[str, str]:
     )
     if not all(isinstance(parsed.get(field), str) for field in fields):
         raise RuntimeError("Groq response does not match the expected schema")
-    return {field: parsed[field].strip() for field in fields}
+    return {field: parsed[field].strip() for field in fields}, status_code
 
 
-def render_markdown(diagnosis: dict[str, str]) -> str:
+def render_markdown(
+    diagnosis: dict[str, str],
+    analyzed_at: str,
+    api_status: str,
+) -> str:
     labels = (
         ("Resumo da falha", "summary"),
         ("Arquivo e linha", "location"),
@@ -135,7 +163,18 @@ def render_markdown(diagnosis: dict[str, str]) -> str:
         ("Nível de confiança", "confidence"),
         ("Testes recomendados", "recommended_tests"),
     )
-    sections = [MARKER, "## Diagnóstico automatizado de CI/CD", ""]
+    sections = [
+        MARKER,
+        "## Diagnóstico automatizado de CI/CD",
+        "",
+        "### Rastreabilidade",
+        "- **Provedor:** GroqCloud",
+        f"- **Modelo:** `{MODEL}`",
+        f"- **Data e horário da análise (UTC):** {analyzed_at}",
+        f"- **Status da chamada à API:** {api_status}",
+        f"- **Resultado do diagnóstico:** {diagnosis['summary']}",
+        "",
+    ]
     for label, field in labels:
         sections.extend((f"### {label}", diagnosis[field], ""))
     sections.append(
@@ -155,10 +194,43 @@ def main() -> int:
     try:
         logs = read_input(args.logs, MAX_LOG_CHARS)
         diff = read_input(args.diff, MAX_DIFF_CHARS)
-        diagnosis = request_diagnosis(build_prompt(logs, diff))
-        Path(args.output).write_text(render_markdown(diagnosis), encoding="utf-8")
+        diagnosis, status_code = request_diagnosis(build_prompt(logs, diff))
+        analyzed_at = datetime.now(timezone.utc).isoformat()
+        api_status = f"sucesso (HTTP {status_code}; resposta JSON validada)"
+    except GroqApiError as error:
+        analyzed_at = datetime.now(timezone.utc).isoformat()
+        api_status = error.status
+        diagnosis = {
+            "summary": "Não foi possível concluir o diagnóstico porque a chamada à GroqCloud falhou.",
+            "location": "Não identificada",
+            "original_error": error.detail,
+            "probable_cause": "Erro reportado pela API GroqCloud ou falha de transporte.",
+            "pr_relationship": "Não identificada",
+            "suggested_fix": "Verificar a configuração do secret GROQ_API_KEY e a disponibilidade/autorização do modelo configurado.",
+            "confidence": "high",
+            "recommended_tests": "Reexecutar o job após validar o secret e o acesso ao modelo Groq.",
+        }
     except RuntimeError as error:
-        print(f"AI debugger failed: {error}", file=sys.stderr)
+        analyzed_at = datetime.now(timezone.utc).isoformat()
+        api_status = "não executada"
+        diagnosis = {
+            "summary": "Não foi possível concluir o diagnóstico porque a chamada à GroqCloud não pôde ser iniciada.",
+            "location": "Não identificada",
+            "original_error": redact(str(error), 500),
+            "probable_cause": "Configuração local ausente ou inválida.",
+            "pr_relationship": "Não identificada",
+            "suggested_fix": "Verificar a configuração do secret GROQ_API_KEY.",
+            "confidence": "high",
+            "recommended_tests": "Reexecutar o job após configurar o secret.",
+        }
+
+    try:
+        Path(args.output).write_text(
+            render_markdown(diagnosis, analyzed_at, api_status),
+            encoding="utf-8",
+        )
+    except RuntimeError as error:
+        print(f"AI debugger failed: unable to write report: {error}", file=sys.stderr)
         return 1
     return 0
 
