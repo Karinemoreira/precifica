@@ -68,11 +68,11 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      # Use trusted base-branch automation code; never execute the PR's copy
-      # while GROQ_API_KEY is available.
+      # Use automation code from the PR branch only for same-repository PRs.
+      # The guard above prevents external PR copies from accessing GROQ_API_KEY.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: ci-logs-${{ github.run_id }}

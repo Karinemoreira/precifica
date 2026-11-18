@@ -20,11 +20,15 @@ MAX_LOG_CHARS = int(os.getenv("AI_DEBUGGER_MAX_LOG_CHARS", "50000"))
 MAX_DIFF_CHARS = int(os.getenv("AI_DEBUGGER_MAX_DIFF_CHARS", "30000"))
 TIMEOUT_SECONDS = int(os.getenv("AI_DEBUGGER_TIMEOUT_SECONDS", "45"))
 MARKER = "<!-- precifica-ai-diagnostic -->"
+MAX_HTTP_ERROR_BODY_CHARS = 2048
+MAX_HTTP_ERROR_DETAIL_CHARS = 500
+GENERIC_HTTP_ERROR_DETAIL = "HTTP response error"
 
 SECRET_PATTERNS = (
     (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(\b(?:token|secret|password|passwd|api[_-]?key)\b\s*[=:]\s*)[^\s,'\"`]+"), r"\1[REDACTED]"),
+    (re.compile(r"\bgsk_[A-Za-z0-9_-]{12,}\b"), "[REDACTED_API_KEY]"),
     (re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"), "[REDACTED_GITHUB_TOKEN]"),
     (re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"), "[REDACTED_API_KEY]"),
     (re.compile(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", re.DOTALL), "[REDACTED_PRIVATE_KEY]"),
@@ -51,6 +55,43 @@ def read_input(path: str, limit: int) -> str:
         return redact(Path(path).read_text(encoding="utf-8", errors="replace"), limit)
     except OSError as error:
         raise RuntimeError(f"unable to read input file {path}: {error}") from error
+
+
+def format_http_error_detail(error: urllib.error.HTTPError) -> str:
+    try:
+        raw_body = error.read(MAX_HTTP_ERROR_BODY_CHARS)
+        if not raw_body:
+            return GENERIC_HTTP_ERROR_DETAIL
+
+        text = raw_body.decode("utf-8", "replace")
+        if not text:
+            return GENERIC_HTTP_ERROR_DETAIL
+
+        sanitized_body = redact(text, MAX_HTTP_ERROR_BODY_CHARS)[:MAX_HTTP_ERROR_BODY_CHARS]
+        if not sanitized_body:
+            return GENERIC_HTTP_ERROR_DETAIL
+
+        try:
+            body = json.loads(sanitized_body)
+        except json.JSONDecodeError:
+            return redact(sanitized_body, MAX_HTTP_ERROR_DETAIL_CHARS)[:MAX_HTTP_ERROR_DETAIL_CHARS]
+
+        groq_error = body.get("error", {}) if isinstance(body, dict) else {}
+        if isinstance(groq_error, dict):
+            for field in ("message", "code"):
+                value = groq_error.get(field)
+                if isinstance(value, str) and value.strip():
+                    return redact(value, MAX_HTTP_ERROR_DETAIL_CHARS)[:MAX_HTTP_ERROR_DETAIL_CHARS]
+
+        if groq_error:
+            return redact(str(groq_error), MAX_HTTP_ERROR_DETAIL_CHARS)[:MAX_HTTP_ERROR_DETAIL_CHARS]
+
+        return redact(
+            json.dumps(body, ensure_ascii=False),
+            MAX_HTTP_ERROR_DETAIL_CHARS,
+        )[:MAX_HTTP_ERROR_DETAIL_CHARS]
+    except Exception:
+        return GENERIC_HTTP_ERROR_DETAIL
 
 
 def build_prompt(logs: str, diff: str) -> str:
@@ -100,6 +141,7 @@ def request_diagnosis(prompt: str) -> tuple[dict[str, str], int]:
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "precifica-ci-diagnostics/1.0",
         },
         method="POST",
     )
@@ -108,16 +150,7 @@ def request_diagnosis(prompt: str) -> tuple[dict[str, str], int]:
             status_code = response.status
             response_data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
-        try:
-            body = json.loads(error.read(2000).decode("utf-8", "replace"))
-            groq_error = body.get("error", {})
-            if isinstance(groq_error, dict):
-                detail = groq_error.get("message") or groq_error.get("code") or "HTTP response error"
-            else:
-                detail = str(groq_error) if groq_error else "HTTP response error"
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            detail = "HTTP response error"
-        detail = redact(str(detail), 500)
+        detail = format_http_error_detail(error)
         raise GroqApiError(
             f"falha (HTTP {error.code})",
             detail,
