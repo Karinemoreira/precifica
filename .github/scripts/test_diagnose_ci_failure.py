@@ -2,6 +2,7 @@ import io
 import json
 import unittest
 import urllib.error
+from unittest import mock
 
 import diagnose_ci_failure
 
@@ -17,6 +18,56 @@ def make_http_error(status: int, body: bytes) -> urllib.error.HTTPError:
 
 
 class FormatHttpErrorDetailTests(unittest.TestCase):
+    def test_request_headers_include_expected_user_agent(self):
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "summary": "ok",
+                                "location": "none",
+                                "original_error": "none",
+                                "probable_cause": "none",
+                                "pr_relationship": "none",
+                                "suggested_fix": "none",
+                                "confidence": "high",
+                                "recommended_tests": "none",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(response_payload).encode("utf-8")
+
+        with mock.patch.dict(
+            "os.environ",
+            {"GROQ_API_KEY": "gsk_test_placeholder"},
+            clear=False,
+        ), mock.patch(
+            "urllib.request.urlopen",
+            return_value=FakeResponse(),
+        ) as urlopen:
+            diagnose_ci_failure.request_diagnosis("test prompt")
+
+        request = urlopen.call_args.args[0]
+        headers = {name.lower(): value for name, value in request.header_items()}
+        self.assertEqual(headers["user-agent"], "precifica-ci-diagnostics/1.0")
+        self.assertEqual(headers["authorization"], "Bearer gsk_test_placeholder")
+        self.assertEqual(headers["content-type"], "application/json")
+
     def test_json_error_message(self):
         error = make_http_error(
             403,

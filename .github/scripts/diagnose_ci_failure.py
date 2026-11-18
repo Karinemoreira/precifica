@@ -141,6 +141,7 @@ def request_diagnosis(prompt: str) -> tuple[dict[str, str], int]:
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "precifica-ci-diagnostics/1.0",
         },
         method="POST",
     )
